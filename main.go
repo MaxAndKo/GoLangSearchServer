@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -24,19 +27,94 @@ type UserRoot struct {
 }
 
 func main() {
-	server, err := SearchServer(SearchRequest{
-		Query:      "cillum",
-		Limit:      10,
-		Offset:     0,
-		OrderField: "Id",
-		OrderBy:    -1,
+
+	http.HandleFunc("/", handlerHelloWorld)
+	http.HandleFunc("/search/", handler)
+
+	http.ListenAndServe(":8080", nil)
+
+	//server, err := SearchServer(SearchRequest{
+	//	Query:      "cillum",
+	//	Limit:      10,
+	//	Offset:     0,
+	//	OrderField: "Id",
+	//	OrderBy:    -1,
+	//})
+	//
+	//if err != nil {
+	//	fmt.Println(err)
+	//}
+	//
+	//fmt.Println(server)
+}
+
+func handlerHelloWorld(w http.ResponseWriter, r *http.Request) {
+	w.Write([]byte("Hello World"))
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	query := r.FormValue("query")
+	orderField := r.FormValue("order_field")
+
+	orderBy, err := toIntIfNotEmpty(r.FormValue("order_by"))
+	if err != nil {
+		handleConvertError(err, w)
+		return
+	}
+
+	limit, err := toIntIfNotEmpty(r.FormValue("limit"))
+	if err != nil {
+		handleConvertError(err, w)
+		return
+	}
+
+	offset, err := toIntIfNotEmpty(r.FormValue("offset"))
+	if err != nil {
+		handleConvertError(err, w)
+		return
+	}
+
+	searchServer, err := SearchServer(SearchRequest{
+		Query:      query,
+		OrderField: orderField,
+		OrderBy:    orderBy,
+		Limit:      limit,
+		Offset:     offset,
 	})
 
 	if err != nil {
-		fmt.Println(err)
+		handleConvertError(err, w)
+		return
 	}
 
-	fmt.Println(server)
+	res, err := json.Marshal(searchServer)
+	if err != nil {
+		handleConvertError(err, w)
+		return
+	}
+	_, err = w.Write(res)
+	if err != nil {
+		handleConvertError(err, w)
+	}
+}
+
+func toIntIfNotEmpty(val string) (int, error) {
+	if val == "" {
+		return 0, nil
+	}
+	atoi, err := strconv.Atoi(val)
+	if err != nil {
+		return 0, err
+	}
+	return atoi, err
+}
+
+func handleConvertError(inputError error, w http.ResponseWriter) {
+	w.WriteHeader(http.StatusBadRequest)
+	_, err := w.Write([]byte(inputError.Error()))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 }
 
 func chooseOrderDirectionFunc(orderDirection int) (func(int) bool, error) {
